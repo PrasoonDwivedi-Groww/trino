@@ -28,7 +28,7 @@ import static org.testng.Assert.assertEquals;
 
 public class TestGroupProviderManager
 {
-    private static final GroupProvider TEST_GROUP_PROVIDER = user -> ImmutableSet.of("test", user);
+    private static final GroupProvider TEST_GROUP_PROVIDER = (user, catalogName) -> ImmutableSet.of("test", user);
     private static final GroupProviderFactory TEST_GROUP_PROVIDER_FACTORY = new GroupProviderFactory()
     {
         @Override
@@ -53,8 +53,8 @@ public class TestGroupProviderManager
             GroupProviderManager groupProviderManager = new GroupProviderManager();
             groupProviderManager.addGroupProviderFactory(TEST_GROUP_PROVIDER_FACTORY);
             groupProviderManager.loadConfiguredGroupProvider(tempFile.file());
-            assertEquals(groupProviderManager.getGroups("alice"), ImmutableSet.of("test", "alice"));
-            assertEquals(groupProviderManager.getGroups("bob"), ImmutableSet.of("test", "bob"));
+            assertEquals(groupProviderManager.getGroups("alice", null), ImmutableSet.of("test", "alice"));
+            assertEquals(groupProviderManager.getGroups("bob", null), ImmutableSet.of("test", "bob"));
         }
     }
 }

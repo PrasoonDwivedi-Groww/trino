@@ -38,7 +38,7 @@ public class TestingGroupProvider
     }
 
     @Override
-    public Set<String> getGroups(String user)
+    public Set<String> getGroups(String user, String catalogName)
     {
         return userGroups.getOrDefault(user, ImmutableSet.of());
     }

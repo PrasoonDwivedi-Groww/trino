@@ -4565,7 +4565,7 @@ class StatementAnalyzer
                 AccessControl viewAccessControl;
                 if (owner.isPresent()) {
                     identity = Identity.from(owner.get())
-                            .withGroups(groupProvider.getGroups(owner.get().getUser()))
+                            .withGroups(groupProvider.getGroups(owner.get().getUser(), name.getCatalogName()))
                             .build();
                     if (owner.get().getUser().equals(session.getIdentity().getUser())) {
                         // View owner does not need GRANT OPTION to grant access themselves
@@ -4708,7 +4708,7 @@ class StatementAnalyzer
             try {
                 Identity filterIdentity = filter.getSecurityIdentity()
                         .map(filterUser -> Identity.forUser(filterUser)
-                                .withGroups(groupProvider.getGroups(filterUser))
+                                .withGroups(groupProvider.getGroups(filterUser, name.getCatalogName()))
                                 .build())
                         .orElseGet(session::getIdentity);
                 expressionAnalysis = ExpressionAnalyzer.analyzeExpression(
@@ -4761,7 +4761,7 @@ class StatementAnalyzer
             try {
                 Identity constraintIdentity = constraint.getSecurityIdentity()
                         .map(user -> Identity.forUser(user)
-                            .withGroups(groupProvider.getGroups(user))
+                            .withGroups(groupProvider.getGroups(user, name.getCatalogName()))
                             .build())
                         .orElseGet(session::getIdentity);
                 expressionAnalysis = ExpressionAnalyzer.analyzeExpression(
@@ -4826,7 +4826,7 @@ class StatementAnalyzer
             try {
                 Identity maskIdentity = mask.getSecurityIdentity()
                         .map(maskUser -> Identity.forUser(maskUser)
-                                .withGroups(groupProvider.getGroups(maskUser))
+                                .withGroups(groupProvider.getGroups(maskUser, tableName.getCatalogName()))
                                 .build())
                         .orElseGet(session::getIdentity);
                 expressionAnalysis = ExpressionAnalyzer.analyzeExpression(

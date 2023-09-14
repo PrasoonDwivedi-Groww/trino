@@ -17,5 +17,5 @@ import java.util.Set;
 
 public interface GroupProvider
 {
-    Set<String> getGroups(String user);
+    Set<String> getGroups(String user, String catalogName);
 }

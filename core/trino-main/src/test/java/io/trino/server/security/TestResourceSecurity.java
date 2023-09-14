@@ -1142,7 +1142,7 @@ public class TestResourceSecurity
             this.sessionContextFactory = new HttpRequestSessionContextFactory(
                     new PreparedStatementEncoder(new ProtocolConfig()),
                     createTestMetadataManager(),
-                    user -> ImmutableSet.of(),
+                    (user, catalogName) -> ImmutableSet.of(),
                     accessControl);
         }
 

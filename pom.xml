@@ -10,7 +10,7 @@
 
     <groupId>io.trino</groupId>
     <artifactId>trino-root</artifactId>
-    <version>425-SNAPSHOT</version>
+    <version>425</version>
     <packaging>pom</packaging>
 
     <name>${project.artifactId}</name>
@@ -81,7 +81,6 @@
         <module>plugin/trino-iceberg</module>
         <module>plugin/trino-ignite</module>
         <module>plugin/trino-jmx</module>
-        <module>plugin/trino-kafka</module>
         <module>plugin/trino-kinesis</module>
         <module>plugin/trino-kudu</module>
         <module>plugin/trino-local-file</module>
@@ -124,7 +123,6 @@
         <module>testing/trino-test-jdbc-compatibility-old-server</module>
         <module>testing/trino-testing</module>
         <module>testing/trino-testing-containers</module>
-        <module>testing/trino-testing-kafka</module>
         <module>testing/trino-testing-resources</module>
         <module>testing/trino-testing-services</module>
         <module>testing/trino-tests</module>

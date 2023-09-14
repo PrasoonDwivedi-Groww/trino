@@ -132,7 +132,7 @@ public class StatementAnalyzerFactory
                 SessionTimeProvider.DEFAULT,
                 accessControl,
                 new NoOpTransactionManager(),
-                user -> ImmutableSet.of(),
+                (user, catalogName) -> ImmutableSet.of(),
                 new TableProceduresRegistry(CatalogServiceProvider.fail("procedures are not supported in testing analyzer")),
                 new TableFunctionRegistry(CatalogServiceProvider.fail("table functions are not supported in testing analyzer")),
                 new SessionPropertyManager(),

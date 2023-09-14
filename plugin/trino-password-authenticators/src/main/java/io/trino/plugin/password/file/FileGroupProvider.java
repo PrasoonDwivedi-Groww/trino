@@ -59,7 +59,7 @@ public class FileGroupProvider
     }
 
     @Override
-    public Set<String> getGroups(String user)
+    public Set<String> getGroups(String user, String catalogName)
     {
         requireNonNull(user, "user is null");
         return userGroupSupplier.get().apply(user);

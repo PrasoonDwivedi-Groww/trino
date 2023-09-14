@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>425-SNAPSHOT</version>
+        <version>425</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -284,6 +284,26 @@
                                     <new>parameter io.trino.spi.PageIndexer io.trino.spi.PageIndexerFactory::createPageIndexer(===java.util.List&lt;io.trino.spi.type.Type&gt;===)</new>
                                     <parameterIndex>0</parameterIndex>
                                 </item>
+                                <item>
+                                    <ignore>true</ignore>
+                                    <code>java.method.numberOfParametersChanged</code>
+                                    <old>method java.util.Set&lt;java.lang.String&gt; io.trino.spi.security.GroupProvider::getGroups(java.lang.String)</old>
+                                    <new>method java.util.Set&lt;java.lang.String&gt; io.trino.spi.security.GroupProvider::getGroups(java.lang.String, java.lang.String)</new>
+                                    <justification>ADD YOUR EXPLANATION FOR THE NECESSITY OF THIS CHANGE</justification>
+                                    <!--
+                                    Additionally, the following attachments can be used to further identify the difference:
+                                    <package>io.trino.spi.security</package>
+                                    <classQualifiedName>io.trino.spi.security.GroupProvider</classQualifiedName>
+                                    <classSimpleName>GroupProvider</classSimpleName>
+                                    <methodName>getGroups</methodName>
+                                    <elementKind>method</elementKind>
+                                    <oldArchive>io.trino:trino-spi:jar:424</oldArchive>
+                                    <oldArchiveRole>primary</oldArchiveRole>
+                                    <newArchive>io.trino:trino-spi:jar:425</newArchive>
+                                    <newArchiveRole>primary</newArchiveRole>
+                                    -->
+                                </item>
+
                             </differences>
                         </revapi.differences>
                     </analysisConfiguration>

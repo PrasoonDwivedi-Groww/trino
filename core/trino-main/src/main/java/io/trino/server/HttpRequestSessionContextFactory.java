@@ -248,6 +248,7 @@ public class HttpRequestSessionContextFactory
     private Identity buildSessionIdentity(Optional<Identity> authenticatedIdentity, ProtocolHeaders protocolHeaders, MultivaluedMap<String, String> headers)
     {
         String trinoUser = trimEmptyToNull(headers.getFirst(protocolHeaders.requestUser()));
+        Optional<String> catalog = Optional.ofNullable(trimEmptyToNull(headers.getFirst(protocolHeaders.requestCatalog())));
         String user = trinoUser != null ? trinoUser : authenticatedIdentity.map(Identity::getUser).orElse(null);
         assertRequest(user != null, "User must be set");
         SelectedRole systemRole = parseSystemRoleHeaders(protocolHeaders, headers);
@@ -261,7 +262,7 @@ public class HttpRequestSessionContextFactory
                 .withEnabledRoles(systemEnabledRoles.build())
                 .withAdditionalConnectorRoles(parseConnectorRoleHeaders(protocolHeaders, headers))
                 .withAdditionalExtraCredentials(parseExtraCredentials(protocolHeaders, headers))
-                .withAdditionalGroups(groupProvider.getGroups(user))
+                .withAdditionalGroups(groupProvider.getGroups(user, catalog.orElse(null)))
                 .build();
     }
 

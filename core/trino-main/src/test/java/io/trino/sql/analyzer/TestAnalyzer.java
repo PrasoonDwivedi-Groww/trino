@@ -7102,7 +7102,7 @@ public class TestAnalyzer
                         return new ConnectorTransactionHandle() {};
                     }
                 },
-                user -> ImmutableSet.of(),
+                (user, catalogName) -> ImmutableSet.of(),
                 new TableProceduresRegistry(CatalogServiceProvider.fail("procedures are not supported in testing analyzer")),
                 new TableFunctionRegistry(catalogName -> new CatalogTableFunctions(ImmutableList.of(
                         new TwoScalarArgumentsFunction(),

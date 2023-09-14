@@ -46,9 +46,9 @@ public class TestFileGroupProvider
 
     private static void assertGroupProvider(GroupProvider groupProvider)
     {
-        assertEquals(groupProvider.getGroups("user_1"), ImmutableSet.of("group_a", "group_b"));
-        assertEquals(groupProvider.getGroups("user_2"), ImmutableSet.of("group_a"));
-        assertEquals(groupProvider.getGroups("user_3"), ImmutableSet.of("group_b"));
-        assertEquals(groupProvider.getGroups("unknown"), ImmutableSet.of());
+        assertEquals(groupProvider.getGroups("user_1", null), ImmutableSet.of("group_a", "group_b"));
+        assertEquals(groupProvider.getGroups("user_2", null), ImmutableSet.of("group_a"));
+        assertEquals(groupProvider.getGroups("user_3", null), ImmutableSet.of("group_b"));
+        assertEquals(groupProvider.getGroups("unknown", null), ImmutableSet.of());
     }
 }

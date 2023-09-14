@@ -105,11 +105,11 @@ public class GroupProviderManager
     }
 
     @Override
-    public Set<String> getGroups(String user)
+    public Set<String> getGroups(String user, String catalogName)
     {
         requireNonNull(user, "user is null");
         return configuredGroupProvider.get()
-                .map(provider -> provider.getGroups(user))
+                .map(provider -> provider.getGroups(user, catalogName))
                 .map(ImmutableSet::copyOf)
                 .orElse(ImmutableSet.of());
     }

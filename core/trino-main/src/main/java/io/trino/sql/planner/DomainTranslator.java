@@ -325,7 +325,7 @@ public final class DomainTranslator
                         SessionTimeProvider.DEFAULT,
                         new AllowAllAccessControl(),
                         new NoOpTransactionManager(),
-                        user -> ImmutableSet.of(),
+                        (user, catalogName) -> ImmutableSet.of(),
                         new TableProceduresRegistry(CatalogServiceProvider.fail("procedures are not supported in domain translator")),
                         new TableFunctionRegistry(CatalogServiceProvider.fail("table functions are not supported in domain translator")),
                         new SessionPropertyManager(),
