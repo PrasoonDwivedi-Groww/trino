@@ -216,6 +216,12 @@ public class CachingJdbcClient
     }
 
     @Override
+    public Optional<Type> getSupportedType(ConnectorSession session, Type type)
+    {
+        return delegate.getSupportedType(session, type);
+    }
+
+    @Override
     public boolean supportsAggregationPushdown(ConnectorSession session, JdbcTableHandle table, List<AggregateFunction> aggregates, Map<String, ColumnHandle> assignments, List<List<ColumnHandle>> groupingSets)
     {
         return delegate.supportsAggregationPushdown(session, table, aggregates, assignments, groupingSets);
@@ -594,6 +600,14 @@ public class CachingJdbcClient
         OptionalLong deletedRowsCount = delegate.delete(session, handle);
         onDataChanged(handle.getRequiredNamedRelation().getSchemaTableName());
         return deletedRowsCount;
+    }
+
+    @Override
+    public OptionalLong update(ConnectorSession session, JdbcTableHandle handle)
+    {
+        OptionalLong updatedRowsCount = delegate.update(session, handle);
+        onDataChanged(handle.getRequiredNamedRelation().getSchemaTableName());
+        return updatedRowsCount;
     }
 
     @Override

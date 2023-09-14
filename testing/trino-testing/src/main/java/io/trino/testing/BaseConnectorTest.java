@@ -145,6 +145,7 @@ import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_RENAME_TABLE;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_RENAME_TABLE_ACROSS_SCHEMAS;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_REPORTING_WRITTEN_BYTES;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_ROW_LEVEL_DELETE;
+import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_ROW_LEVEL_UPDATE;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_ROW_TYPE;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_SET_COLUMN_TYPE;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_SET_FIELD_TYPE;
@@ -206,7 +207,6 @@ public abstract class BaseConnectorTest
 
     /**
      * Make sure to group related behaviours together in the order and grouping they are declared in {@link TestingConnectorBehavior}.
-     * If required, annotate the method with {@code @SuppressWarnings("DuplicateBranchesInSwitch")}.
      */
     protected boolean hasBehavior(TestingConnectorBehavior connectorBehavior)
     {
@@ -1587,21 +1587,18 @@ public abstract class BaseConnectorTest
     @Test
     public void testColumnCommentMaterializedView()
     {
-        if (!hasBehavior(SUPPORTS_COMMENT_ON_MATERIALIZED_VIEW_COLUMN)) {
-            if (hasBehavior(SUPPORTS_CREATE_MATERIALIZED_VIEW)) {
-                String viewName = "test_materialized_view_" + randomNameSuffix();
-                assertUpdate("CREATE MATERIALIZED VIEW " + viewName + " AS SELECT * FROM nation");
-                assertQueryFails("COMMENT ON COLUMN " + viewName + ".regionkey IS 'new region key comment'", "This connector does not support setting materialized view column comments");
-                assertUpdate("DROP MATERIALIZED VIEW " + viewName);
-                return;
-            }
-            throw new SkipException("Skipping as connector does not support MATERIALIZED VIEW COLUMN COMMENT");
-        }
+        skipTestUnless(hasBehavior(SUPPORTS_CREATE_MATERIALIZED_VIEW));
 
         String viewName = "test_materialized_view_" + randomNameSuffix();
-        try {
+        if (!hasBehavior(SUPPORTS_COMMENT_ON_MATERIALIZED_VIEW_COLUMN)) {
             assertUpdate("CREATE MATERIALIZED VIEW " + viewName + " AS SELECT * FROM nation");
+            assertQueryFails("COMMENT ON COLUMN " + viewName + ".regionkey IS 'new region key comment'", "This connector does not support setting materialized view column comments");
+            assertUpdate("DROP MATERIALIZED VIEW " + viewName);
+            return;
+        }
 
+        assertUpdate("CREATE MATERIALIZED VIEW " + viewName + " AS SELECT * FROM nation");
+        try {
             assertUpdate("COMMENT ON COLUMN " + viewName + ".name IS 'new comment'");
             assertThat(getColumnComment(viewName, "name")).isEqualTo("new comment");
 
@@ -2820,6 +2817,19 @@ public abstract class BaseConnectorTest
         assertUpdate("ALTER TABLE IF EXISTS " + tableName + " RENAME COLUMN columnNotExists TO y");
         assertUpdate("ALTER TABLE IF EXISTS " + tableName + " RENAME COLUMN IF EXISTS columnNotExists TO y");
         assertFalse(getQueryRunner().tableExists(getSession(), tableName));
+    }
+
+    @Test
+    public void testRenameColumnWithComment()
+    {
+        skipTestUnless(hasBehavior(SUPPORTS_RENAME_COLUMN) && hasBehavior(SUPPORTS_CREATE_TABLE_WITH_COLUMN_COMMENT));
+
+        try (TestTable table = new TestTable(getQueryRunner()::execute, "test_rename_column_", "(col INT COMMENT 'test column comment')")) {
+            assertThat(getColumnComment(table.getName(), "col")).isEqualTo("test column comment");
+
+            assertUpdate("ALTER TABLE " + table.getName() + " RENAME COLUMN col TO renamed_col");
+            assertThat(getColumnComment(table.getName(), "renamed_col")).isEqualTo("test column comment");
+        }
     }
 
     @Test
@@ -4628,9 +4638,51 @@ public abstract class BaseConnectorTest
     }
 
     @Test
+    public void verifySupportsUpdateDeclaration()
+    {
+        if (hasBehavior(SUPPORTS_UPDATE)) {
+            // Covered by testUpdate
+            return;
+        }
+
+        skipTestUnless(hasBehavior(SUPPORTS_CREATE_TABLE));
+        try (TestTable table = new TestTable(getQueryRunner()::execute, "test_supports_update", "AS SELECT * FROM nation")) {
+            assertQueryFails("UPDATE " + table.getName() + " SET nationkey = 100 WHERE regionkey = 2", MODIFYING_ROWS_MESSAGE);
+        }
+    }
+
+    @Test
+    public void verifySupportsRowLevelUpdateDeclaration()
+    {
+        if (hasBehavior(SUPPORTS_ROW_LEVEL_UPDATE)) {
+            // Covered by testRowLevelUpdate
+            return;
+        }
+
+        skipTestUnless(hasBehavior(SUPPORTS_CREATE_TABLE));
+        try (TestTable table = new TestTable(getQueryRunner()::execute, "test_supports_update", "AS SELECT * FROM nation")) {
+            assertQueryFails("UPDATE " + table.getName() + " SET nationkey = nationkey * 100 WHERE regionkey = 2", MODIFYING_ROWS_MESSAGE);
+        }
+    }
+
+    @Test
     public void testUpdate()
     {
         if (!hasBehavior(SUPPORTS_UPDATE)) {
+            // Note this change is a no-op, if actually run
+            assertQueryFails("UPDATE nation SET nationkey = nationkey + regionkey WHERE regionkey < 1", MODIFYING_ROWS_MESSAGE);
+            return;
+        }
+        try (TestTable table = new TestTable(getQueryRunner()::execute, "test_row_update", "AS SELECT * FROM nation")) {
+            assertUpdate("UPDATE " + table.getName() + " SET nationkey = 100 WHERE regionkey = 2", 5);
+            assertQuery("SELECT count(*) FROM " + table.getName() + " WHERE nationkey = 100", "VALUES 5");
+        }
+    }
+
+    @Test
+    public void testRowLevelUpdate()
+    {
+        if (!hasBehavior(SUPPORTS_ROW_LEVEL_UPDATE)) {
             // Note this change is a no-op, if actually run
             assertQueryFails("UPDATE nation SET nationkey = nationkey + regionkey WHERE regionkey < 1", MODIFYING_ROWS_MESSAGE);
             return;

@@ -100,22 +100,22 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
                     .build()
                     .asList();
 
-    private static final List<String> NON_TPCH_TABLES = ImmutableList.of(
-            "invariants",
-            "person",
-            "foo",
-            "bar",
-            "old_dates",
-            "old_timestamps",
-            "nested_timestamps",
-            "nested_timestamps_parquet_stats",
-            "json_stats_on_row_type",
-            "parquet_stats_missing",
-            "uppercase_columns",
-            "default_partitions",
-            "insert_nonlowercase_columns",
-            "insert_nested_nonlowercase_columns",
-            "insert_nonlowercase_columns_partitioned");
+    private static final List<ResourceTable> NON_TPCH_TABLES = ImmutableList.of(
+            new ResourceTable("invariants", "deltalake/invariants"),
+            new ResourceTable("person", "databricks73/person"),
+            new ResourceTable("foo", "databricks73/foo"),
+            new ResourceTable("bar", "databricks73/bar"),
+            new ResourceTable("old_dates", "databricks73/old_dates"),
+            new ResourceTable("old_timestamps", "databricks73/old_timestamps"),
+            new ResourceTable("nested_timestamps", "databricks73/nested_timestamps"),
+            new ResourceTable("nested_timestamps_parquet_stats", "databricks73/nested_timestamps_parquet_stats"),
+            new ResourceTable("json_stats_on_row_type", "databricks104/json_stats_on_row_type"),
+            new ResourceTable("parquet_stats_missing", "databricks73/parquet_stats_missing"),
+            new ResourceTable("uppercase_columns", "databricks73/uppercase_columns"),
+            new ResourceTable("default_partitions", "databricks73/default_partitions"),
+            new ResourceTable("insert_nonlowercase_columns", "databricks73/insert_nonlowercase_columns"),
+            new ResourceTable("insert_nested_nonlowercase_columns", "databricks73/insert_nested_nonlowercase_columns"),
+            new ResourceTable("insert_nonlowercase_columns_partitioned", "databricks73/insert_nonlowercase_columns_partitioned"));
 
     // Cannot be too small, as implicit (time-based) cache invalidation can mask issues. Cannot be too big as some tests need to wait for cache
     // to be outdated.
@@ -184,8 +184,7 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
              * (TIMESTAMP '0100-01-01 01:02:03', 1), (TIMESTAMP '1582-10-15 01:02:03', 2), (TIMESTAMP '1960-01-01 01:02:03', 3), (TIMESTAMP '2020-01-01 01:02:03', 4);
              */
             NON_TPCH_TABLES.forEach(table -> {
-                String resourcePath = "databricks/" + table;
-                registerTableFromResources(table, resourcePath, queryRunner);
+                registerTableFromResources(table.tableName(), table.resourcePath(), queryRunner);
             });
 
             queryRunner.installPlugin(new TestingHivePlugin());
@@ -227,23 +226,14 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
                 queryRunner -> {});
     }
 
-    @SuppressWarnings("DuplicateBranchesInSwitch")
     @Override
     protected boolean hasBehavior(TestingConnectorBehavior connectorBehavior)
     {
-        switch (connectorBehavior) {
-            case SUPPORTS_TRUNCATE:
-                return false;
-
-            case SUPPORTS_CREATE_MATERIALIZED_VIEW:
-                return false;
-
-            case SUPPORTS_RENAME_SCHEMA:
-                return false;
-
-            default:
-                return super.hasBehavior(connectorBehavior);
-        }
+        return switch (connectorBehavior) {
+            case SUPPORTS_CREATE_MATERIALIZED_VIEW,
+                    SUPPORTS_RENAME_SCHEMA -> false;
+            default -> super.hasBehavior(connectorBehavior);
+        };
     }
 
     @Test
@@ -326,7 +316,7 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
     public void testPathUriDecoding()
     {
         String tableName = "test_uri_table_" + randomNameSuffix();
-        registerTableFromResources(tableName, "databricks/uri", getQueryRunner());
+        registerTableFromResources(tableName, "deltalake/uri", getQueryRunner());
 
         assertQuery("SELECT * FROM " + tableName, "VALUES ('a=equal', 1), ('a:colon', 2), ('a+plus', 3), ('a space', 4), ('a%percent', 5)");
         String firstFilePath = (String) computeScalar("SELECT \"$path\" FROM " + tableName + " WHERE y = 1");
@@ -449,7 +439,7 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
     {
         testDropTable(
                 "testdrop_databricks",
-                "io/trino/plugin/deltalake/testing/resources/databricks/nation");
+                "io/trino/plugin/deltalake/testing/resources/databricks73/nation");
     }
 
     @Test
@@ -485,7 +475,7 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
     @Test
     public void testDropColumnNotSupported()
     {
-        registerTableFromResources("testdropcolumn", "io/trino/plugin/deltalake/testing/resources/databricks/nation", getQueryRunner());
+        registerTableFromResources("testdropcolumn", "io/trino/plugin/deltalake/testing/resources/databricks73/nation", getQueryRunner());
         assertQueryFails("ALTER TABLE testdropcolumn DROP COLUMN comment", "Cannot drop column from table using column mapping mode NONE");
     }
 
@@ -1550,7 +1540,7 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
     public void testStatsSplitPruningBasedOnSepCreatedCheckpointOnTopOfCheckpointWithJustStructStats()
     {
         String tableName = "test_sep_checkpoint_stats_pruning_struct_stats_" + randomNameSuffix();
-        registerTableFromResources(tableName, "databricks/pruning/parquet_struct_statistics", getQueryRunner());
+        registerTableFromResources(tableName, "databricks73/pruning/parquet_struct_statistics", getQueryRunner());
         String transactionLogDirectory = format("%s/_delta_log", tableName);
 
         // there should be one checkpoint already (created by DB)
@@ -1965,6 +1955,36 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
             assertQuery("SELECT version, operation FROM \"" + table.getName() + "$history\" WHERE version > 3", "VALUES (4, 'MERGE')");
             assertQuery("SELECT version, operation FROM \"" + table.getName() + "$history\" WHERE version >= 3 OR version = 1", "VALUES (1, 'WRITE'), (3, 'MERGE'), (4, 'MERGE')");
             assertQuery("SELECT version, operation FROM \"" + table.getName() + "$history\" WHERE version >= 1 AND version < 3", "VALUES (1, 'WRITE'), (2, 'WRITE')");
+            assertThat(query("SELECT version, operation FROM \"" + table.getName() + "$history\" WHERE version > 1 AND version < 2")).returnsEmptyResult();
+        }
+    }
+
+    @Test
+    public void testHistoryTableWithDeletedTransactionLog()
+    {
+        try (TestTable table = new TestTable(
+                getQueryRunner()::execute,
+                "test_history_table_with_deleted_transaction_log",
+                "(int_col INTEGER) WITH (checkpoint_interval = 3)")) {
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 1, 2, 3", 3);
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 4, 5, 6", 3);
+            assertUpdate("DELETE FROM " + table.getName() + " WHERE int_col = 1", 1);
+            assertUpdate("UPDATE " + table.getName() + " SET int_col = int_col * 2 WHERE int_col = 6", 1);
+
+            String tableLocation = getTableLocation(table.getName());
+            // Remove first two transaction logs to mimic log retention duration exceeds
+            String key = tableLocation.substring(bucketUrl().length());
+            MinioClient minio = hiveMinioDataLake.getMinioClient();
+            minio.removeObject(bucketName, "%s/_delta_log/%020d.json".formatted(key, 0));
+            minio.removeObject(bucketName, "%s/_delta_log/%020d.json".formatted(key, 1));
+
+            assertQuery("SELECT version, operation FROM \"" + table.getName() + "$history\"", "VALUES (2, 'WRITE'), (3, 'MERGE'), (4, 'MERGE')");
+            assertThat(query("SELECT version, operation FROM \"" + table.getName() + "$history\" WHERE version = 1")).returnsEmptyResult();
+            assertQuery("SELECT version, operation FROM \"" + table.getName() + "$history\" WHERE version = 3", "VALUES (3, 'MERGE')");
+            assertQuery("SELECT version, operation FROM \"" + table.getName() + "$history\" WHERE version > 3", "VALUES (4, 'MERGE')");
+            assertQuery("SELECT version, operation FROM \"" + table.getName() + "$history\" WHERE version < 3", "VALUES (2, 'WRITE')");
+            assertQuery("SELECT version, operation FROM \"" + table.getName() + "$history\" WHERE version >= 3 OR version = 1", "VALUES (3, 'MERGE'), (4, 'MERGE')");
+            assertQuery("SELECT version, operation FROM \"" + table.getName() + "$history\" WHERE version >= 1 AND version < 3", "VALUES (2, 'WRITE')");
             assertThat(query("SELECT version, operation FROM \"" + table.getName() + "$history\" WHERE version > 1 AND version < 2")).returnsEmptyResult();
         }
     }

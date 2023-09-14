@@ -207,9 +207,7 @@ public final class SystemSessionProperties
     public static final String USE_EXACT_PARTITIONING = "use_exact_partitioning";
     public static final String USE_COST_BASED_PARTITIONING = "use_cost_based_partitioning";
     public static final String FORCE_SPILLING_JOIN = "force_spilling_join";
-    public static final String FAULT_TOLERANT_EXECUTION_FORCE_PREFERRED_WRITE_PARTITIONING_ENABLED = "fault_tolerant_execution_force_preferred_write_partitioning_enabled";
     public static final String PAGE_PARTITIONING_BUFFER_POOL_SIZE = "page_partitioning_buffer_pool_size";
-    public static final String FLAT_GROUP_BY_HASH = "flat_group_by_hash";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -1063,19 +1061,9 @@ public final class SystemSessionProperties
                         "Force the usage of spliing join operator in favor of the non-spilling one, even if spill is not enabled",
                         featuresConfig.isForceSpillingJoin(),
                         false),
-                booleanProperty(
-                        FAULT_TOLERANT_EXECUTION_FORCE_PREFERRED_WRITE_PARTITIONING_ENABLED,
-                        "Force preferred write partitioning for fault tolerant execution",
-                        queryManagerConfig.isFaultTolerantExecutionForcePreferredWritePartitioningEnabled(),
-                        true),
                 integerProperty(PAGE_PARTITIONING_BUFFER_POOL_SIZE,
                         "Maximum number of free buffers in the per task partitioned page buffer pool. Setting this to zero effectively disables the pool",
                         taskManagerConfig.getPagePartitioningBufferPoolSize(),
-                        true),
-                booleanProperty(
-                        FLAT_GROUP_BY_HASH,
-                        "Enable new flat group by hash",
-                        featuresConfig.isFlatGroupByHash(),
                         true));
     }
 
@@ -1915,18 +1903,8 @@ public final class SystemSessionProperties
         return session.getSystemProperty(FORCE_SPILLING_JOIN, Boolean.class);
     }
 
-    public static boolean isFaultTolerantExecutionForcePreferredWritePartitioningEnabled(Session session)
-    {
-        return session.getSystemProperty(FAULT_TOLERANT_EXECUTION_FORCE_PREFERRED_WRITE_PARTITIONING_ENABLED, Boolean.class);
-    }
-
     public static int getPagePartitioningBufferPoolSize(Session session)
     {
         return session.getSystemProperty(PAGE_PARTITIONING_BUFFER_POOL_SIZE, Integer.class);
-    }
-
-    public static boolean isFlatGroupByHash(Session session)
-    {
-        return session.getSystemProperty(FLAT_GROUP_BY_HASH, Boolean.class);
     }
 }

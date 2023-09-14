@@ -74,6 +74,11 @@ public interface JdbcClient
 
     WriteMapping toWriteMapping(ConnectorSession session, Type type);
 
+    default Optional<Type> getSupportedType(ConnectorSession session, Type type)
+    {
+        return Optional.empty();
+    }
+
     default boolean supportsAggregationPushdown(ConnectorSession session, JdbcTableHandle table, List<AggregateFunction> aggregates, Map<String, ColumnHandle> assignments, List<List<ColumnHandle>> groupingSets)
     {
         return true;
@@ -230,6 +235,8 @@ public interface JdbcClient
     OptionalLong delete(ConnectorSession session, JdbcTableHandle handle);
 
     void truncateTable(ConnectorSession session, JdbcTableHandle handle);
+
+    OptionalLong update(ConnectorSession session, JdbcTableHandle handle);
 
     OptionalInt getMaxWriteParallelism(ConnectorSession session);
 }

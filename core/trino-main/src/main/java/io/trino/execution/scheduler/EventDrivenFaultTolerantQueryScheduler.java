@@ -37,6 +37,9 @@ import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 import io.opentelemetry.api.trace.Tracer;
 import io.trino.Session;
+import io.trino.connector.informationschema.InformationSchemaTableHandle;
+import io.trino.connector.system.GlobalSystemConnector;
+import io.trino.connector.system.SystemTableHandle;
 import io.trino.exchange.SpoolingExchangeInput;
 import io.trino.execution.BasicStageStats;
 import io.trino.execution.ExecutionFailureInfo;
@@ -85,11 +88,14 @@ import io.trino.sql.planner.PlanFragment;
 import io.trino.sql.planner.PlanFragmentIdAllocator;
 import io.trino.sql.planner.PlanNodeIdAllocator;
 import io.trino.sql.planner.SubPlan;
+import io.trino.sql.planner.optimizations.PlanNodeSearcher;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.PlanFragmentId;
 import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.PlanNodeId;
+import io.trino.sql.planner.plan.RefreshMaterializedViewNode;
 import io.trino.sql.planner.plan.RemoteSourceNode;
+import io.trino.sql.planner.plan.TableScanNode;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
@@ -1149,6 +1155,7 @@ public class EventDrivenFaultTolerantQueryScheduler
 
                 boolean coordinatorStage = stage.getFragment().getPartitioning().equals(COORDINATOR_DISTRIBUTION);
 
+                boolean noMemoryFragment = isNoMemoryFragment(fragment);
                 StageExecution execution = new StageExecution(
                         queryStateMachine,
                         taskDescriptorStorage,
@@ -1156,7 +1163,8 @@ public class EventDrivenFaultTolerantQueryScheduler
                         taskSource,
                         sinkPartitioningScheme,
                         exchange,
-                        memoryEstimatorFactory.createPartitionMemoryEstimator(),
+                        noMemoryFragment,
+                        noMemoryFragment ? new NoMemoryPartitionMemoryEstimator() : memoryEstimatorFactory.createPartitionMemoryEstimator(),
                         // do not retry coordinator only tasks
                         coordinatorStage ? 1 : maxTaskExecutionAttempts,
                         schedulingPriority,
@@ -1187,6 +1195,29 @@ public class EventDrivenFaultTolerantQueryScheduler
                 }
                 throw t;
             }
+        }
+
+        private boolean isNoMemoryFragment(PlanFragment fragment)
+        {
+            // If source fragments are not tagged as "no-memory" assume that they may produce significant amount of data.
+            // We stay on the safe side an assume that we should use standard memory estimation for this fragment
+            if (!fragment.getRemoteSourceNodes().stream().flatMap(node -> node.getSourceFragmentIds().stream())
+                    .allMatch(sourceFragmentId -> stageExecutions.get(getStageId(sourceFragmentId)).isNoMemoryFragment())) {
+                return false;
+            }
+
+            // If fragment source is not reading any external tables or only accesses information_schema assume it does not need significant amount of memory.
+            // Allow scheduling even if whole server memory is pre allocated.
+            List<PlanNode> tableScanNodes = PlanNodeSearcher.searchFrom(fragment.getRoot()).whereIsInstanceOfAny(TableScanNode.class).findAll();
+            return tableScanNodes.stream().allMatch(node -> isMetadataTableScan((TableScanNode) node));
+        }
+
+        private static boolean isMetadataTableScan(TableScanNode tableScanNode)
+        {
+            return (tableScanNode.getTable().getConnectorHandle() instanceof InformationSchemaTableHandle) ||
+                    (tableScanNode.getTable().getCatalogHandle().getCatalogName().equals(GlobalSystemConnector.NAME) &&
+                            (tableScanNode.getTable().getConnectorHandle() instanceof SystemTableHandle systemHandle) &&
+                            systemHandle.getSchemaName().equals("jdbc"));
         }
 
         private StageId getStageId(PlanFragmentId fragmentId)
@@ -1522,6 +1553,7 @@ public class EventDrivenFaultTolerantQueryScheduler
         private final EventDrivenTaskSource taskSource;
         private final FaultTolerantPartitioningScheme sinkPartitioningScheme;
         private final Exchange exchange;
+        private final boolean noMemoryFragment;
         private final PartitionMemoryEstimator partitionMemoryEstimator;
         private final int maxTaskExecutionAttempts;
         private final int schedulingPriority;
@@ -1558,6 +1590,7 @@ public class EventDrivenFaultTolerantQueryScheduler
                 EventDrivenTaskSource taskSource,
                 FaultTolerantPartitioningScheme sinkPartitioningScheme,
                 Exchange exchange,
+                boolean noMemoryFragment,
                 PartitionMemoryEstimator partitionMemoryEstimator,
                 int maxTaskExecutionAttempts,
                 int schedulingPriority,
@@ -1575,6 +1608,7 @@ public class EventDrivenFaultTolerantQueryScheduler
             this.taskSource = requireNonNull(taskSource, "taskSource is null");
             this.sinkPartitioningScheme = requireNonNull(sinkPartitioningScheme, "sinkPartitioningScheme is null");
             this.exchange = requireNonNull(exchange, "exchange is null");
+            this.noMemoryFragment = noMemoryFragment;
             this.partitionMemoryEstimator = requireNonNull(partitionMemoryEstimator, "partitionMemoryEstimator is null");
             this.maxTaskExecutionAttempts = maxTaskExecutionAttempts;
             this.schedulingPriority = schedulingPriority;
@@ -1627,6 +1661,11 @@ public class EventDrivenFaultTolerantQueryScheduler
             return exchangeClosed;
         }
 
+        public boolean isNoMemoryFragment()
+        {
+            return noMemoryFragment;
+        }
+
         public void addPartition(int partitionId, NodeRequirements nodeRequirements)
         {
             if (getState().isDone()) {
@@ -1638,6 +1677,12 @@ public class EventDrivenFaultTolerantQueryScheduler
             DataSize defaultTaskMemory = stage.getFragment().getPartitioning().equals(COORDINATOR_DISTRIBUTION) ?
                     getFaultTolerantExecutionDefaultCoordinatorTaskMemory(session) :
                     getFaultTolerantExecutionDefaultTaskMemory(session);
+            if (stage.getFragment().getRoot().getSources().stream()
+                    .anyMatch(planNode -> planNode instanceof RefreshMaterializedViewNode)) {
+                // REFRESH MATERIALIZED VIEW will issue other SQL commands under the hood. If its task memory is
+                // non-zero, then a deadlock scenario is possible if we only have a single node in the cluster.
+                defaultTaskMemory = DataSize.ofBytes(0);
+            }
             StagePartition partition = new StagePartition(
                     taskDescriptorStorage,
                     stage.getStageId(),

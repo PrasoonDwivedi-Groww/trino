@@ -64,6 +64,7 @@ import static io.trino.spi.security.AccessDeniedException.denyGrantTablePrivileg
 import static io.trino.spi.security.AccessDeniedException.denyImpersonateUser;
 import static io.trino.spi.security.AccessDeniedException.denyInsertTable;
 import static io.trino.spi.security.AccessDeniedException.denyKillQuery;
+import static io.trino.spi.security.AccessDeniedException.denyReadSystemInformationAccess;
 import static io.trino.spi.security.AccessDeniedException.denyRefreshMaterializedView;
 import static io.trino.spi.security.AccessDeniedException.denyRenameColumn;
 import static io.trino.spi.security.AccessDeniedException.denyRenameMaterializedView;
@@ -92,6 +93,7 @@ import static io.trino.spi.security.AccessDeniedException.denyShowTables;
 import static io.trino.spi.security.AccessDeniedException.denyTruncateTable;
 import static io.trino.spi.security.AccessDeniedException.denyUpdateTableColumns;
 import static io.trino.spi.security.AccessDeniedException.denyViewQuery;
+import static io.trino.spi.security.AccessDeniedException.denyWriteSystemInformationAccess;
 import static java.lang.String.format;
 import static java.util.Collections.emptySet;
 
@@ -102,9 +104,9 @@ public interface SystemAccessControl
      *
      * @throws AccessDeniedException if not allowed
      */
-    default void checkCanImpersonateUser(SystemSecurityContext context, String userName)
+    default void checkCanImpersonateUser(Identity identity, String userName)
     {
-        denyImpersonateUser(context.getIdentity().getUser(), userName);
+        denyImpersonateUser(identity.getUser(), userName);
     }
 
     /**
@@ -124,7 +126,7 @@ public interface SystemAccessControl
      *
      * @throws AccessDeniedException if not allowed
      */
-    default void checkCanExecuteQuery(SystemSecurityContext context)
+    default void checkCanExecuteQuery(Identity identity)
     {
         denyExecuteQuery();
     }
@@ -135,20 +137,7 @@ public interface SystemAccessControl
      *
      * @throws AccessDeniedException if not allowed
      */
-    default void checkCanViewQueryOwnedBy(SystemSecurityContext context, Identity queryOwner)
-    {
-        checkCanViewQueryOwnedBy(context, queryOwner.getUser());
-    }
-
-    /**
-     * Checks if identity can view a query owned by the specified user.  The method
-     * will not be called when the current user is the query owner.
-     *
-     * @throws AccessDeniedException if not allowed
-     * @deprecated Implement {@link #checkCanViewQueryOwnedBy(SystemSecurityContext, Identity)} instead.
-     */
-    @Deprecated
-    default void checkCanViewQueryOwnedBy(SystemSecurityContext context, String queryOwner)
+    default void checkCanViewQueryOwnedBy(Identity identity, Identity queryOwner)
     {
         denyViewQuery();
     }
@@ -157,25 +146,7 @@ public interface SystemAccessControl
      * Filter the list of users to those the identity view query owned by the user.  The method
      * will not be called with the current user in the set.
      */
-    default Collection<Identity> filterViewQueryOwnedBy(SystemSecurityContext context, Collection<Identity> queryOwners)
-    {
-        Set<String> ownerUsers = queryOwners.stream()
-                .map(Identity::getUser)
-                .collect(Collectors.toSet());
-        Set<String> allowedUsers = filterViewQueryOwnedBy(context, ownerUsers);
-        return queryOwners.stream()
-                .filter(owner -> allowedUsers.contains(owner.getUser()))
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * Filter the list of users to those the identity view query owned by the user.  The method
-     * will not be called with the current user in the set.
-     *
-     * @deprecated Implement {@link #filterViewQueryOwnedBy(SystemSecurityContext, Collection)} instead.
-     */
-    @Deprecated
-    default Set<String> filterViewQueryOwnedBy(SystemSecurityContext context, Set<String> queryOwners)
+    default Collection<Identity> filterViewQueryOwnedBy(Identity identity, Collection<Identity> queryOwners)
     {
         return emptySet();
     }
@@ -186,20 +157,7 @@ public interface SystemAccessControl
      *
      * @throws AccessDeniedException if not allowed
      */
-    default void checkCanKillQueryOwnedBy(SystemSecurityContext context, Identity queryOwner)
-    {
-        checkCanKillQueryOwnedBy(context, queryOwner.getUser());
-    }
-
-    /**
-     * Checks if identity can kill a query owned by the specified user.  The method
-     * will not be called when the current user is the query owner.
-     *
-     * @throws AccessDeniedException if not allowed
-     * @deprecated Implement {@link #checkCanKillQueryOwnedBy(SystemSecurityContext, Identity)} instead.
-     */
-    @Deprecated
-    default void checkCanKillQueryOwnedBy(SystemSecurityContext context, String queryOwner)
+    default void checkCanKillQueryOwnedBy(Identity identity, Identity queryOwner)
     {
         denyKillQuery();
     }
@@ -211,9 +169,9 @@ public interface SystemAccessControl
      *
      * @throws AccessDeniedException if not allowed
      */
-    default void checkCanReadSystemInformation(SystemSecurityContext context)
+    default void checkCanReadSystemInformation(Identity identity)
     {
-        AccessDeniedException.denyReadSystemInformationAccess();
+        denyReadSystemInformationAccess();
     }
 
     /**
@@ -222,9 +180,9 @@ public interface SystemAccessControl
      *
      * @throws AccessDeniedException if not allowed
      */
-    default void checkCanWriteSystemInformation(SystemSecurityContext context)
+    default void checkCanWriteSystemInformation(Identity identity)
     {
-        AccessDeniedException.denyWriteSystemInformationAccess();
+        denyWriteSystemInformationAccess();
     }
 
     /**
@@ -232,7 +190,7 @@ public interface SystemAccessControl
      *
      * @throws AccessDeniedException if not allowed
      */
-    default void checkCanSetSystemSessionProperty(SystemSecurityContext context, String propertyName)
+    default void checkCanSetSystemSessionProperty(Identity identity, String propertyName)
     {
         denySetSystemSessionProperty(propertyName);
     }
@@ -465,10 +423,24 @@ public interface SystemAccessControl
 
     /**
      * Filter the list of columns to those visible to the identity.
+     *
+     * @deprecated Use {@link #filterColumns(SystemSecurityContext, String, Map)}
      */
+    @Deprecated
     default Set<String> filterColumns(SystemSecurityContext context, CatalogSchemaTableName table, Set<String> columns)
     {
         return emptySet();
+    }
+
+    /**
+     * Filter lists of columns of multiple tables to those visible to the identity.
+     */
+    default Map<SchemaTableName, Set<String>> filterColumns(SystemSecurityContext context, String catalogName, Map<SchemaTableName, Set<String>> tableColumns)
+    {
+        return tableColumns.entrySet().stream()
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        entry -> filterColumns(context, new CatalogSchemaTableName(catalogName, entry.getKey()), entry.getValue())));
     }
 
     /**
@@ -895,18 +867,7 @@ public interface SystemAccessControl
      */
     default Optional<ViewExpression> getColumnMask(SystemSecurityContext context, CatalogSchemaTableName tableName, String columnName, Type type)
     {
-        List<ViewExpression> masks = getColumnMasks(context, tableName, columnName, type);
-        if (masks.size() > 1) {
-            throw new UnsupportedOperationException("Multiple masks on a single column are no longer supported");
-        }
-
-        return masks.stream().findFirst();
-    }
-
-    @Deprecated
-    default List<ViewExpression> getColumnMasks(SystemSecurityContext context, CatalogSchemaTableName tableName, String columnName, Type type)
-    {
-        return List.of();
+        return Optional.empty();
     }
 
     /**

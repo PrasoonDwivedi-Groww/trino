@@ -253,16 +253,6 @@ Hive connector documentation.
       - Enables automatic column level statistics collection on write. See
         `Table Statistics <#table-statistics>`__ for details.
       - ``true``
-    * - ``hive.s3select-pushdown.enabled``
-      - Enable query pushdown to JSON files using the AWS S3 Select service.
-      - ``false``
-    * - ``hive.s3select-pushdown.experimental-textfile-pushdown-enabled``
-      - Enable query pushdown to TEXTFILE tables using the AWS S3 Select service.
-      - ``false``
-    * - ``hive.s3select-pushdown.max-connections``
-      - Maximum number of simultaneously open connections to S3 for
-        :ref:`s3selectpushdown`.
-      - 500
     * - ``hive.file-status-cache-tables``
       - Cache directory listing for specific tables. Examples:
 
@@ -1075,6 +1065,11 @@ modes.
 - Disabled
 - Legacy
 - Experimental
+
+If using Hive views from Trino is required, you must compare results in Hive and
+Trino for each view definition to ensure identical results. Use the experimental
+mode whenever possible. Avoid using the legacy mode. Leave Hive views support
+disabled, if you are not accessing any Hive views from Trino.
 
 You can configure the behavior in your catalog properties file.
 

@@ -159,7 +159,6 @@ import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.collect.Iterables.concat;
 import static com.google.common.collect.Iterables.getOnlyElement;
-import static com.google.common.reflect.Reflection.newProxy;
 import static io.trino.plugin.base.projection.ApplyProjectionUtil.extractSupportedProjectedColumns;
 import static io.trino.plugin.base.projection.ApplyProjectionUtil.replaceWithNewVariables;
 import static io.trino.plugin.hive.HiveAnalyzeProperties.getColumnNames;
@@ -279,9 +278,9 @@ import static io.trino.plugin.hive.util.AcidTables.isTransactionalTable;
 import static io.trino.plugin.hive.util.AcidTables.writeAcidVersionFile;
 import static io.trino.plugin.hive.util.HiveBucketing.getHiveBucketHandle;
 import static io.trino.plugin.hive.util.HiveBucketing.isSupportedBucketing;
-import static io.trino.plugin.hive.util.HiveUtil.columnMetadataGetter;
 import static io.trino.plugin.hive.util.HiveUtil.getPartitionKeyColumnHandles;
 import static io.trino.plugin.hive.util.HiveUtil.getRegularColumnHandles;
+import static io.trino.plugin.hive.util.HiveUtil.getTableColumnMetadata;
 import static io.trino.plugin.hive.util.HiveUtil.hiveColumnHandles;
 import static io.trino.plugin.hive.util.HiveUtil.isDeltaLakeTable;
 import static io.trino.plugin.hive.util.HiveUtil.isHiveSystemSchema;
@@ -318,6 +317,7 @@ import static io.trino.spi.type.TypeUtils.isFloatingPointNaN;
 import static io.trino.spi.type.VarcharType.createUnboundedVarcharType;
 import static java.lang.Boolean.parseBoolean;
 import static java.lang.String.format;
+import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
 import static java.util.stream.Collectors.joining;
@@ -458,6 +458,20 @@ public class HiveMetadata
     public DirectoryLister getDirectoryLister()
     {
         return directoryLister;
+    }
+
+    @Override
+    public boolean schemaExists(ConnectorSession session, String schemaName)
+    {
+        if (!schemaName.equals(schemaName.toLowerCase(ENGLISH))) {
+            // Currently, Trino schemas are always lowercase, so this one cannot exist (https://github.com/trinodb/trino/issues/17)
+            // In fact, some metastores (e.g. Glue) store database names lowercase only, but accepted mixed case on lookup, so we need to filter out here.
+            return false;
+        }
+        if (isHiveSystemSchema(schemaName)) {
+            return false;
+        }
+        return metastore.getDatabase(schemaName).isPresent();
     }
 
     @Override
@@ -634,11 +648,7 @@ public class HiveMetadata
             throw new TableNotFoundException(tableName);
         }
 
-        Function<HiveColumnHandle, ColumnMetadata> metadataGetter = columnMetadataGetter(table);
-        ImmutableList.Builder<ColumnMetadata> columns = ImmutableList.builder();
-        for (HiveColumnHandle columnHandle : hiveColumnHandles(table, typeManager, getTimestampPrecision(session))) {
-            columns.add(metadataGetter.apply(columnHandle));
-        }
+        List<ColumnMetadata> columns = getTableColumnMetadata(session, table, typeManager);
 
         // External location property
         ImmutableMap.Builder<String, Object> properties = ImmutableMap.builder();
@@ -737,7 +747,7 @@ public class HiveMetadata
         // Partition Projection specific properties
         properties.putAll(partitionProjectionService.getPartitionProjectionTrinoTableProperties(table));
 
-        return new ConnectorTableMetadata(tableName, columns.build(), properties.buildOrThrow(), comment);
+        return new ConnectorTableMetadata(tableName, columns, properties.buildOrThrow(), comment);
     }
 
     private static Optional<String> getCsvSerdeProperty(Table table, String key)
@@ -1041,7 +1051,7 @@ public class HiveMetadata
 
             external = true;
             targetPath = Optional.of(getValidatedExternalLocation(externalLocation));
-            checkExternalPath(session, targetPath.get());
+            checkExternalPathAndCreateIfNotExists(session, targetPath.get());
         }
         else {
             external = false;
@@ -1319,15 +1329,30 @@ public class HiveMetadata
         return validated;
     }
 
-    private void checkExternalPath(ConnectorSession session, Location location)
+    private void checkExternalPathAndCreateIfNotExists(ConnectorSession session, Location location)
     {
         try {
             if (!fileSystemFactory.create(session).directoryExists(location).orElse(true)) {
-                throw new TrinoException(INVALID_TABLE_PROPERTY, "External location must be a directory: " + location);
+                if (writesToNonManagedTablesEnabled) {
+                    createDirectory(session, location);
+                }
+                else {
+                    throw new TrinoException(INVALID_TABLE_PROPERTY, "External location must be a directory: " + location);
+                }
             }
         }
         catch (IOException | IllegalArgumentException e) {
             throw new TrinoException(INVALID_TABLE_PROPERTY, "External location is not a valid file system URI: " + location, e);
+        }
+    }
+
+    private void createDirectory(ConnectorSession session, Location location)
+    {
+        try {
+            fileSystemFactory.create(session).createDirectory(location);
+        }
+        catch (IOException e) {
+            throw new TrinoException(INVALID_TABLE_PROPERTY, e.getMessage());
         }
     }
 
@@ -1930,7 +1955,7 @@ public class HiveMetadata
                             format,
                             HiveCompressionCodec.NONE,
                             schema,
-                            nativeWriterAlwaysEnabled(session),
+                            session,
                             OptionalInt.empty(),
                             NO_ACID_TRANSACTION,
                             false,
@@ -1940,16 +1965,6 @@ public class HiveMetadata
                     .orElseThrow(() -> new TrinoException(HIVE_UNSUPPORTED_FORMAT, "Writing not supported for " + format))
                     .commit();
         }
-    }
-
-    private static ConnectorSession nativeWriterAlwaysEnabled(ConnectorSession session)
-    {
-        return newProxy(ConnectorSession.class, (proxy, method, args) -> {
-            if (method.getName().equals("getProperty") && ((String) args[0]).endsWith("_native_writer_enabled")) {
-                return true;
-            }
-            return method.invoke(session, args);
-        });
     }
 
     @Override

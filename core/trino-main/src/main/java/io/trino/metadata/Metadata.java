@@ -49,6 +49,7 @@ import io.trino.spi.connector.TableScanRedirectApplicationResult;
 import io.trino.spi.connector.TopNApplicationResult;
 import io.trino.spi.connector.WriterScalingOptions;
 import io.trino.spi.expression.ConnectorExpression;
+import io.trino.spi.expression.Constant;
 import io.trino.spi.function.AggregationFunctionMetadata;
 import io.trino.spi.function.FunctionMetadata;
 import io.trino.spi.function.OperatorType;
@@ -238,11 +239,6 @@ public interface Metadata
     void setViewColumnComment(Session session, QualifiedObjectName viewName, String columnName, Optional<String> comment);
 
     /**
-     * Comments to the specified materialized view column.
-     */
-    void setMaterializedViewColumnComment(Session session, QualifiedObjectName viewName, String columnName, Optional<String> comment);
-
-    /**
      * Comments to the specified column.
      */
     void setColumnComment(Session session, TableHandle tableHandle, ColumnHandle column, Optional<String> comment);
@@ -305,6 +301,11 @@ public interface Metadata
     void truncateTable(Session session, TableHandle tableHandle);
 
     Optional<TableLayout> getNewTableLayout(Session session, String catalogName, ConnectorTableMetadata tableMetadata);
+
+    /**
+     * Return the effective {@link io.trino.spi.type.Type} that is supported by the connector for the given type, if {@link Optional#empty()} is returned, the type will be used as is during table creation which may or may not be supported by the connector.
+     */
+    Optional<Type> getSupportedType(Session session, CatalogHandle catalogHandle, Type type);
 
     /**
      * Begin the atomic creation of a table with data.
@@ -384,6 +385,16 @@ public interface Metadata
             Collection<Slice> fragments,
             Collection<ComputedStatistics> computedStatistics,
             List<TableHandle> sourceTableHandles);
+
+    /**
+     * Push update into connector
+     */
+    Optional<TableHandle> applyUpdate(Session session, TableHandle tableHandle, Map<ColumnHandle, Constant> assignments);
+
+    /**
+     * Execute update in connector
+     */
+    OptionalLong executeUpdate(Session session, TableHandle tableHandle);
 
     /**
      * Push delete into connector
@@ -724,6 +735,11 @@ public interface Metadata
      * Sets the properties of the specified materialized view.
      */
     void setMaterializedViewProperties(Session session, QualifiedObjectName viewName, Map<String, Optional<Object>> properties);
+
+    /**
+     * Comments to the specified materialized view column.
+     */
+    void setMaterializedViewColumnComment(Session session, QualifiedObjectName viewName, String columnName, Optional<String> comment);
 
     /**
      * Returns the result of redirecting the table scan on a given table to a different table.

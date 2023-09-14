@@ -87,12 +87,13 @@ public final class DeltaLakeSchemaSupport
     public static final String COLUMN_MAPPING_MODE_CONFIGURATION_KEY = "delta.columnMapping.mode";
     public static final String COLUMN_MAPPING_PHYSICAL_NAME_CONFIGURATION_KEY = "delta.columnMapping.physicalName";
     public static final String MAX_COLUMN_ID_CONFIGURATION_KEY = "delta.columnMapping.maxColumnId";
+    private static final String DELETION_VECTORS_CONFIGURATION_KEY = "delta.enableDeletionVectors";
 
     // https://github.com/delta-io/delta/blob/master/PROTOCOL.md#valid-feature-names-in-table-features
-    // TODO: Add support for 'deletionVectors' reader features
     private static final Set<String> SUPPORTED_READER_FEATURES = ImmutableSet.<String>builder()
             .add("columnMapping")
             .add("timestampNtz")
+            .add("deletionVectors")
             .build();
 
     public enum ColumnMappingMode
@@ -124,6 +125,11 @@ public final class DeltaLakeSchemaSupport
         return parseBoolean(metadataEntry.getConfiguration().getOrDefault(APPEND_ONLY_CONFIGURATION_KEY, "false"));
     }
 
+    public static boolean isDeletionVectorEnabled(MetadataEntry metadataEntry)
+    {
+        return parseBoolean(metadataEntry.getConfiguration().get(DELETION_VECTORS_CONFIGURATION_KEY));
+    }
+
     public static ColumnMappingMode getColumnMappingMode(MetadataEntry metadata)
     {
         String columnMappingMode = metadata.getConfiguration().getOrDefault(COLUMN_MAPPING_MODE_CONFIGURATION_KEY, "none");
@@ -133,7 +139,7 @@ public final class DeltaLakeSchemaSupport
     public static int getMaxColumnId(MetadataEntry metadata)
     {
         String maxColumnId = metadata.getConfiguration().get(MAX_COLUMN_ID_CONFIGURATION_KEY);
-        requireNonNull(maxColumnId, () -> MAX_COLUMN_ID_CONFIGURATION_KEY + " metadata configuration property not found");
+        requireNonNull(maxColumnId, MAX_COLUMN_ID_CONFIGURATION_KEY + " metadata configuration property not found");
         return Integer.parseInt(maxColumnId);
     }
 
@@ -569,53 +575,36 @@ public final class DeltaLakeSchemaSupport
         if (primitiveType.startsWith("decimal")) {
             return typeManager.fromSqlType(primitiveType);
         }
-        switch (primitiveType) {
-            case "string":
-                return VARCHAR;
-            case "long":
-                return BIGINT;
-            case "integer":
-                return INTEGER;
-            case "short":
-                return SMALLINT;
-            case "byte":
-                return TINYINT;
-            case "float":
-                return REAL;
-            case "double":
-                return DOUBLE;
-            case "boolean":
-                return BOOLEAN;
-            case "binary":
-                return VARBINARY;
-            case "date":
-                return DATE;
-            case "timestamp_ntz":
-                // https://github.com/delta-io/delta/blob/master/PROTOCOL.md#timestamp-without-timezone-timestampntz
-                return TIMESTAMP_MICROS;
-            case "timestamp":
-                // Spark/DeltaLake stores timestamps in UTC, but renders them in session time zone.
-                // For more info, see https://delta-users.slack.com/archives/GKTUWT03T/p1585760533005400
-                // and https://cwiki.apache.org/confluence/display/Hive/Different+TIMESTAMP+types
-                return TIMESTAMP_TZ_MILLIS;
-            default:
-                throw new TypeNotFoundException(new TypeSignature(primitiveType));
-        }
+        return switch (primitiveType) {
+            case "string" -> VARCHAR;
+            case "long" -> BIGINT;
+            case "integer" -> INTEGER;
+            case "short" -> SMALLINT;
+            case "byte" -> TINYINT;
+            case "float" -> REAL;
+            case "double" -> DOUBLE;
+            case "boolean" -> BOOLEAN;
+            case "binary" -> VARBINARY;
+            case "date" -> DATE;
+            // https://github.com/delta-io/delta/blob/master/PROTOCOL.md#timestamp-without-timezone-timestampntz
+            case "timestamp_ntz" -> TIMESTAMP_MICROS;
+            // Spark/DeltaLake stores timestamps in UTC, but renders them in session time zone.
+            // For more info, see https://delta-users.slack.com/archives/GKTUWT03T/p1585760533005400
+            // and https://cwiki.apache.org/confluence/display/Hive/Different+TIMESTAMP+types
+            case "timestamp" -> TIMESTAMP_TZ_MILLIS;
+            default -> throw new TypeNotFoundException(new TypeSignature(primitiveType));
+        };
     }
 
     private static Type buildContainerType(TypeManager typeManager, JsonNode typeNode, boolean usePhysicalName)
     {
         String containerType = typeNode.get("type").asText();
-        switch (containerType) {
-            case "array":
-                return buildArrayType(typeManager, typeNode, usePhysicalName);
-            case "map":
-                return buildMapType(typeManager, typeNode, usePhysicalName);
-            case "struct":
-                return buildRowType(typeManager, typeNode, usePhysicalName);
-            default:
-                throw new TypeNotFoundException(new TypeSignature(containerType));
-        }
+        return switch (containerType) {
+            case "array" -> buildArrayType(typeManager, typeNode, usePhysicalName);
+            case "map" -> buildMapType(typeManager, typeNode, usePhysicalName);
+            case "struct" -> buildRowType(typeManager, typeNode, usePhysicalName);
+            default -> throw new TypeNotFoundException(new TypeSignature(containerType));
+        };
     }
 
     private static RowType buildRowType(TypeManager typeManager, JsonNode typeNode, boolean usePhysicalName)

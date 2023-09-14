@@ -76,6 +76,7 @@ import io.trino.spi.connector.TableScanRedirectApplicationResult;
 import io.trino.spi.connector.TopNApplicationResult;
 import io.trino.spi.connector.WriterScalingOptions;
 import io.trino.spi.expression.ConnectorExpression;
+import io.trino.spi.expression.Constant;
 import io.trino.spi.function.AggregationFunctionMetadata;
 import io.trino.spi.function.FunctionMetadata;
 import io.trino.spi.function.OperatorType;
@@ -436,15 +437,6 @@ public class TracingMetadata
     }
 
     @Override
-    public void setMaterializedViewColumnComment(Session session, QualifiedObjectName viewName, String columnName, Optional<String> comment)
-    {
-        Span span = startSpan("setMaterializedViewColumnComment", viewName);
-        try (var ignored = scopedSpan(span)) {
-            delegate.setMaterializedViewColumnComment(session, viewName, columnName, comment);
-        }
-    }
-
-    @Override
     public void setColumnComment(Session session, TableHandle tableHandle, ColumnHandle column, Optional<String> comment)
     {
         Span span = startSpan("setColumnComment", tableHandle);
@@ -558,6 +550,15 @@ public class TracingMetadata
         Span span = startSpan("getNewTableLayout", catalogName, tableMetadata);
         try (var ignored = scopedSpan(span)) {
             return delegate.getNewTableLayout(session, catalogName, tableMetadata);
+        }
+    }
+
+    @Override
+    public Optional<Type> getSupportedType(Session session, CatalogHandle catalogHandle, Type type)
+    {
+        Span span = startSpan("getSupportedType", catalogHandle.getCatalogName());
+        try (var ignored = scopedSpan(span)) {
+            return delegate.getSupportedType(session, catalogHandle, type);
         }
     }
 
@@ -702,6 +703,24 @@ public class TracingMetadata
         Span span = startSpan("finishRefreshMaterializedView", tableHandle);
         try (var ignored = scopedSpan(span)) {
             return delegate.finishRefreshMaterializedView(session, tableHandle, insertTableHandle, fragments, computedStatistics, sourceTableHandles);
+        }
+    }
+
+    @Override
+    public Optional<TableHandle> applyUpdate(Session session, TableHandle tableHandle, Map<ColumnHandle, Constant> assignments)
+    {
+        Span span = startSpan("applyUpdate", tableHandle);
+        try (var ignored = scopedSpan(span)) {
+            return delegate.applyUpdate(session, tableHandle, assignments);
+        }
+    }
+
+    @Override
+    public OptionalLong executeUpdate(Session session, TableHandle tableHandle)
+    {
+        Span span = startSpan("executeUpdate", tableHandle);
+        try (var ignored = scopedSpan(span)) {
+            return delegate.executeUpdate(session, tableHandle);
         }
     }
 
@@ -1311,6 +1330,15 @@ public class TracingMetadata
         Span span = startSpan("setMaterializedViewProperties", viewName);
         try (var ignored = scopedSpan(span)) {
             delegate.setMaterializedViewProperties(session, viewName, properties);
+        }
+    }
+
+    @Override
+    public void setMaterializedViewColumnComment(Session session, QualifiedObjectName viewName, String columnName, Optional<String> comment)
+    {
+        Span span = startSpan("setMaterializedViewColumnComment", viewName);
+        try (var ignored = scopedSpan(span)) {
+            delegate.setMaterializedViewColumnComment(session, viewName, columnName, comment);
         }
     }
 

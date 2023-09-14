@@ -55,6 +55,7 @@ import io.trino.spi.connector.TableScanRedirectApplicationResult;
 import io.trino.spi.connector.TopNApplicationResult;
 import io.trino.spi.connector.WriterScalingOptions;
 import io.trino.spi.expression.ConnectorExpression;
+import io.trino.spi.expression.Constant;
 import io.trino.spi.function.AggregationFunctionMetadata;
 import io.trino.spi.function.BoundSignature;
 import io.trino.spi.function.FunctionMetadata;
@@ -305,12 +306,6 @@ public abstract class AbstractMockMetadata
     }
 
     @Override
-    public void setMaterializedViewColumnComment(Session session, QualifiedObjectName viewName, String columnName, Optional<String> comment)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     public void setColumnComment(Session session, TableHandle tableHandle, ColumnHandle column, Optional<String> comment)
     {
         throw new UnsupportedOperationException();
@@ -384,6 +379,12 @@ public abstract class AbstractMockMetadata
 
     @Override
     public Optional<TableLayout> getNewTableLayout(Session session, String catalogName, ConnectorTableMetadata tableMetadata)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Optional<Type> getSupportedType(Session session, CatalogHandle catalogHandle, Type type)
     {
         throw new UnsupportedOperationException();
     }
@@ -480,6 +481,18 @@ public abstract class AbstractMockMetadata
             Collection<Slice> fragments,
             Collection<ComputedStatistics> computedStatistics,
             List<TableHandle> sourceTableHandles)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Optional<TableHandle> applyUpdate(Session session, TableHandle tableHandle, Map<ColumnHandle, Constant> assignments)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public OptionalLong executeUpdate(Session session, TableHandle tableHandle)
     {
         throw new UnsupportedOperationException();
     }
@@ -902,6 +915,12 @@ public abstract class AbstractMockMetadata
 
     @Override
     public void setMaterializedViewProperties(Session session, QualifiedObjectName viewName, Map<String, Optional<Object>> properties)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setMaterializedViewColumnComment(Session session, QualifiedObjectName viewName, String columnName, Optional<String> comment)
     {
         throw new UnsupportedOperationException();
     }

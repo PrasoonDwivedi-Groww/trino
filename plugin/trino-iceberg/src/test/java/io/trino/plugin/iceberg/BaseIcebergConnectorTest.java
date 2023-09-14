@@ -212,29 +212,17 @@ public abstract class BaseIcebergConnectorTest
         }
     }
 
-    @SuppressWarnings("DuplicateBranchesInSwitch")
     @Override
     protected boolean hasBehavior(TestingConnectorBehavior connectorBehavior)
     {
-        switch (connectorBehavior) {
-            case SUPPORTS_TRUNCATE:
-                return false;
-
-            case SUPPORTS_TOPN_PUSHDOWN:
-                return false;
-
-            case SUPPORTS_RENAME_MATERIALIZED_VIEW_ACROSS_SCHEMAS:
-                return false;
-
-            case SUPPORTS_ADD_COLUMN_NOT_NULL_CONSTRAINT:
-                return false;
-
-            case SUPPORTS_REPORTING_WRITTEN_BYTES:
-                return true;
-
-            default:
-                return super.hasBehavior(connectorBehavior);
-        }
+        return switch (connectorBehavior) {
+            case SUPPORTS_REPORTING_WRITTEN_BYTES -> true;
+            case SUPPORTS_ADD_COLUMN_NOT_NULL_CONSTRAINT,
+                    SUPPORTS_RENAME_MATERIALIZED_VIEW_ACROSS_SCHEMAS,
+                    SUPPORTS_TOPN_PUSHDOWN,
+                    SUPPORTS_TRUNCATE -> false;
+            default -> super.hasBehavior(connectorBehavior);
+        };
     }
 
     @Test
@@ -5314,6 +5302,42 @@ public abstract class BaseIcebergConnectorTest
     }
 
     @Test
+    public void testTargetMaxFileSizeOnSortedTable()
+    {
+        String tableName = "test_default_max_file_size_sorted_" + randomNameSuffix();
+        @Language("SQL") String createTableSql = format("CREATE TABLE %s WITH (sorted_by = ARRAY['shipdate']) AS SELECT * FROM tpch.sf1.lineitem LIMIT 100000", tableName);
+
+        Session session = Session.builder(getSession())
+                .setSystemProperty("task_writer_count", "1")
+                // task scale writers should be disabled since we want to write with a single task writer
+                .setSystemProperty("task_scale_writers_enabled", "false")
+                .build();
+        assertUpdate(session, createTableSql, 100000);
+        List<String> initialFiles = getActiveFiles(tableName);
+        assertThat(initialFiles.size()).isLessThanOrEqualTo(3);
+        assertUpdate(format("DROP TABLE %s", tableName));
+
+        DataSize maxSize = DataSize.of(40, DataSize.Unit.KILOBYTE);
+        session = Session.builder(getSession())
+                .setSystemProperty("task_writer_count", "1")
+                // task scale writers should be disabled since we want to write with a single task writer
+                .setSystemProperty("task_scale_writers_enabled", "false")
+                .setCatalogSessionProperty("iceberg", "target_max_file_size", maxSize.toString())
+                .build();
+
+        assertUpdate(session, createTableSql, 100000);
+        assertThat(query(format("SELECT count(*) FROM %s", tableName))).matches("VALUES BIGINT '100000'");
+        List<String> updatedFiles = getActiveFiles(tableName);
+        assertThat(updatedFiles.size()).isGreaterThan(5);
+
+        computeActual(format("SELECT file_size_in_bytes FROM \"%s$files\"", tableName))
+                .getMaterializedRows()
+                // as target_max_file_size is set to quite low value it can happen that created files are bigger,
+                // so just to be safe we check if it is not much bigger
+                .forEach(row -> assertThat((Long) row.getField(0)).isBetween(1L, maxSize.toBytes() * 20));
+    }
+
+    @Test
     public void testDroppingIcebergAndCreatingANewTableWithTheSameNameShouldBePossible()
     {
         assertUpdate("CREATE TABLE test_iceberg_recreate (a_int) AS VALUES (1)", 1);
@@ -6908,6 +6932,56 @@ public abstract class BaseIcebergConnectorTest
                 .hasMessage("Invalid metadata file for table tpch.%s".formatted(tableName));
 
         assertUpdate("DROP TABLE " + tableName);
+    }
+
+    @Test
+    public void testTableChangesFunctionAfterSchemaChange()
+    {
+        try (TestTable table = new TestTable(
+                getQueryRunner()::execute,
+                "test_table_changes_function_",
+                "AS SELECT nationkey, name FROM tpch.tiny.nation WITH NO DATA")) {
+            long initialSnapshot = getCurrentSnapshotId(table.getName());
+            assertUpdate("INSERT INTO " + table.getName() + " SELECT nationkey, name FROM nation WHERE nationkey < 5", 5);
+            long snapshotAfterInsert = getCurrentSnapshotId(table.getName());
+
+            assertUpdate("ALTER TABLE " + table.getName() + " DROP COLUMN name");
+            assertUpdate("INSERT INTO " + table.getName() + " SELECT nationkey FROM nation WHERE nationkey >= 5 AND nationkey < 10", 5);
+            long snapshotAfterDropColumn = getCurrentSnapshotId(table.getName());
+
+            assertUpdate("ALTER TABLE " + table.getName() + " ADD COLUMN comment VARCHAR");
+            assertUpdate("INSERT INTO " + table.getName() + " SELECT nationkey, comment FROM nation WHERE nationkey >= 10 AND nationkey < 15", 5);
+            long snapshotAfterAddColumn = getCurrentSnapshotId(table.getName());
+
+            assertUpdate("ALTER TABLE " + table.getName() + " ADD COLUMN name VARCHAR");
+            assertUpdate("INSERT INTO " + table.getName() + " SELECT nationkey, comment, name FROM nation WHERE nationkey >= 15", 10);
+            long snapshotAfterReaddingNameColumn = getCurrentSnapshotId(table.getName());
+
+            assertQuery(
+                    "SELECT nationkey, name, _change_type, _change_version_id, _change_ordinal " +
+                            "FROM TABLE(system.table_changes('tpch', '%s', %s, %s))".formatted(table.getName(), initialSnapshot, snapshotAfterInsert),
+                    "SELECT nationkey, name, 'insert', %s, 0 FROM nation WHERE nationkey < 5".formatted(snapshotAfterInsert));
+
+            assertQuery(
+                    "SELECT nationkey, _change_type, _change_version_id, _change_ordinal " +
+                            "FROM TABLE(system.table_changes('tpch', '%s', %s, %s))".formatted(table.getName(), initialSnapshot, snapshotAfterDropColumn),
+                    "SELECT nationkey, 'insert', %s, 0 FROM nation WHERE nationkey < 5 UNION SELECT nationkey, 'insert', %s, 1 FROM nation WHERE nationkey >= 5 AND nationkey < 10 ".formatted(snapshotAfterInsert, snapshotAfterDropColumn));
+
+            assertQuery(
+                    "SELECT nationkey, comment, _change_type, _change_version_id, _change_ordinal " +
+                            "FROM TABLE(system.table_changes('tpch', '%s', %s, %s))".formatted(table.getName(), initialSnapshot, snapshotAfterAddColumn),
+                    ("SELECT nationkey, NULL, 'insert', %s, 0 FROM nation WHERE nationkey < 5 " +
+                            "UNION SELECT nationkey, NULL, 'insert', %s, 1 FROM nation WHERE nationkey >= 5 AND nationkey < 10 " +
+                            "UNION SELECT nationkey, comment, 'insert', %s, 2 FROM nation WHERE nationkey >= 10 AND nationkey < 15").formatted(snapshotAfterInsert, snapshotAfterDropColumn, snapshotAfterAddColumn));
+
+            assertQuery(
+                    "SELECT nationkey, comment, name, _change_type, _change_version_id, _change_ordinal " +
+                            "FROM TABLE(system.table_changes('tpch', '%s', %s, %s))".formatted(table.getName(), initialSnapshot, snapshotAfterReaddingNameColumn),
+                    ("SELECT nationkey, NULL, NULL, 'insert', %s, 0 FROM nation WHERE nationkey < 5 " +
+                            "UNION SELECT nationkey, NULL, NULL, 'insert', %s, 1 FROM nation WHERE nationkey >= 5 AND nationkey < 10 " +
+                            "UNION SELECT nationkey, comment, NULL, 'insert', %s, 2 FROM nation WHERE nationkey >= 10 AND nationkey < 15" +
+                            "UNION SELECT nationkey, comment, name, 'insert', %s, 3 FROM nation WHERE nationkey >= 15").formatted(snapshotAfterInsert, snapshotAfterDropColumn, snapshotAfterAddColumn, snapshotAfterReaddingNameColumn));
+        }
     }
 
     @Override

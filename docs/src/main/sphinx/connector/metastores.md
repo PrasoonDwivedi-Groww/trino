@@ -48,7 +48,8 @@ are also available. They are discussed later in this topic.
         metadata catalogs.
 
         You must set this property in all Iceberg catalog property files.
-        Valid values are ``HIVE_METASTORE``, ``GLUE``, ``JDBC``, and ``REST``.
+        Valid values are ``HIVE_METASTORE``, ``GLUE``, ``JDBC``, ``REST``, and
+        ``NESSIE``.
       -
     * - ``hive.metastore-cache.cache-partitions``
       - Enable caching for partition metadata. You can disable caching to avoid
@@ -141,6 +142,9 @@ properties:
    * - ``hive.metastore.thrift.client.ssl.trust-certificate-password``
      - Password for the trust store.
      -
+   * - ``hive.metastore.thrift.batch-fetch.enabled``
+     - Enable fetching tables and views from all schemas in a single request.
+     - ``true``
    * - ``hive.metastore.service.principal``
      - The Kerberos principal of the Hive metastore service.
      -

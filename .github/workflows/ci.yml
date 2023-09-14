@@ -60,7 +60,7 @@ jobs:
           - 20
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # checkout all commits, as the build result depends on `git describe` equivalent
           ref: |
@@ -88,7 +88,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # checkout all commits, as the build result depends on `git describe` equivalent
           ref: |
@@ -127,7 +127,7 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # checkout all commits to be able to determine merge base
       - name: Block illegal commits
@@ -159,7 +159,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.check-commits-dispatcher.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         if: matrix.commit != ''
         with:
           fetch-depth: 0 # checkout all commits to be able to determine merge base
@@ -177,7 +177,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # checkout all commits to be able to determine merge base for GIB
           ref: |
@@ -202,7 +202,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # checkout all commits: it's not needed here, but it's needed almost always, so let's do this for completeness
           ref: |
@@ -218,7 +218,7 @@ jobs:
     env:
       SECRETS_PRESENT: ${{ secrets.SECRETS_PRESENT }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # checkout tags so version in Manifest is set properly
           ref: |
@@ -285,7 +285,7 @@ jobs:
     env:
       SECRETS_PRESENT: ${{ secrets.SECRETS_PRESENT }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # checkout all commits to be able to determine merge base for GIB
           ref: |
@@ -426,7 +426,7 @@ jobs:
     env:
       SECRETS_PRESENT: ${{ secrets.SECRETS_PRESENT }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # checkout all commits to be able to determine merge base for GIB
           ref: |
@@ -521,7 +521,7 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # checkout all commits to be able to determine merge base for GIB
           ref: |
@@ -568,6 +568,7 @@ jobs:
             - { modules: core/trino-main }
             - { modules: core/trino-main, jdk: 20 }
             - { modules: lib/trino-filesystem-s3, profile: cloud-tests }
+            - { modules: lib/trino-filesystem-azure, profile: cloud-tests }
             - { modules: plugin/trino-accumulo }
             - { modules: plugin/trino-bigquery }
             - { modules: plugin/trino-bigquery, profile: cloud-tests-arrow }
@@ -624,7 +625,7 @@ jobs:
     env:
       SECRETS_PRESENT: ${{ secrets.SECRETS_PRESENT }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # checkout all commits to be able to determine merge base for GIB
           ref: |
@@ -652,6 +653,7 @@ jobs:
           && ! (contains(matrix.modules, 'trino-redshift') && contains(matrix.profile, 'cloud-tests'))
           && ! (contains(matrix.modules, 'trino-redshift') && contains(matrix.profile, 'fte-tests'))
           && ! (contains(matrix.modules, 'trino-filesystem-s3') && contains(matrix.profile, 'cloud-tests'))
+          && ! (contains(matrix.modules, 'trino-filesystem-azure') && contains(matrix.profile, 'cloud-tests'))
         run: $MAVEN test ${MAVEN_TEST} -pl ${{ matrix.modules }} ${{ matrix.profile != '' && format('-P {0}', matrix.profile) || '' }}
       # Additional tests for selected modules
       - name: HDFS file system cache isolated JVM tests
@@ -667,6 +669,21 @@ jobs:
         if: >-
           contains(matrix.modules, 'trino-filesystem-s3') && contains(matrix.profile, 'cloud-tests') &&
           (env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || env.AWS_ACCESS_KEY_ID != '' || env.AWS_SECRET_ACCESS_KEY != '')
+        run: |
+          $MAVEN test ${MAVEN_TEST} -pl ${{ matrix.modules }} ${{ format('-P {0}', matrix.profile) }}
+      - name: Azure FileSystem Cloud Tests
+        env:
+          ABFS_BLOB_ACCOUNT: todo
+          ABFS_BLOB_ACCESS_KEY: todo
+          ABFS_FLAT_ACCOUNT: todo
+          ABFS_FLAT_ACCESS_KEY: todo
+          ABFS_ACCOUNT: todo
+          ABFS_ACCESS_KEY: todo
+        # todo(https://github.com/trinodb/trino/issues/18998) Enable when we have env variables in place
+        if: >-
+          false &&
+          contains(matrix.modules, 'trino-filesystem-azure') && contains(matrix.profile, 'cloud-tests') &&
+          (env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || env.ABFS_BLOB_ACCOUNT != '' || env.ABFS_BLOB_ACCESS_KEY != '' || env.ABFS_FLAT_ACCOUNT != '' || env.ABFS_FLAT_ACCESS_KEY != '' || env.ABFS_ACCOUNT != '' || env.ABFS_ACCESS_KEY != '')
         run: |
           $MAVEN test ${MAVEN_TEST} -pl ${{ matrix.modules }} ${{ format('-P {0}', matrix.profile) }}
       - name: Cloud Delta Lake Tests
@@ -833,7 +850,7 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       product-tests-changed: ${{ steps.filter.outputs.product-tests }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # checkout all commits to be able to determine merge base for GIB
           ref: |
@@ -885,36 +902,41 @@ jobs:
           cat <<EOF > .github/test-pt-matrix.yaml
           config:
             - default
-            - hdp3
-            # TODO: config-apache-hive3
           suite:
             - suite-1
             - suite-2
             - suite-3
             # suite-4 does not exist
             - suite-5
+            - suite-6-non-generic
+            - suite-7-non-generic
+            - suite-8-non-generic
             - suite-azure
-            - suite-delta-lake-databricks73
             - suite-delta-lake-databricks91
             - suite-delta-lake-databricks104
             - suite-delta-lake-databricks113
             - suite-delta-lake-databricks122
+            - suite-delta-lake-databricks133
             - suite-gcs
             - suite-clients
             - suite-functions
             - suite-tpch
+            - suite-tpcds
             - suite-storage-formats-detailed
+            - suite-parquet
+            - suite-oauth2
+            - suite-ldap
+            - suite-compatibility
+            - suite-all-connectors-smoke
+            - suite-delta-lake-oss
+            - suite-kafka
+            - suite-cassandra
+            - suite-clickhouse
+            - suite-mysql
+            - suite-iceberg
+            - suite-hudi
+            - suite-ignite
           exclude:
-            - config: default
-              ignore exclusion if: >-
-                ${{ github.event_name != 'pull_request'
-                 || github.event.pull_request.head.repo.full_name == github.repository
-                 || contains(github.event.pull_request.labels.*.name, 'tests:all')
-                 || contains(github.event.pull_request.labels.*.name, 'tests:hive')
-                 }}
-
-            - suite: suite-azure
-              config: default
             - suite: suite-azure
               ignore exclusion if: >-
                 ${{ env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' ||
@@ -923,34 +945,22 @@ jobs:
                     secrets.AZURE_ABFS_ACCESSKEY != '' }}
 
             - suite: suite-gcs
-              config: default
-            - suite: suite-gcs
               ignore exclusion if: >-
                 ${{ env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || secrets.GCP_CREDENTIALS_KEY != '' }}
 
-            - suite: suite-delta-lake-databricks73
-              config: hdp3
-            - suite: suite-delta-lake-databricks73
-              ignore exclusion if: >-
-                ${{ env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || secrets.DATABRICKS_TOKEN != '' }}
-            - suite: suite-delta-lake-databricks91
-              config: hdp3
             - suite: suite-delta-lake-databricks91
               ignore exclusion if: >-
                 ${{ env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || secrets.DATABRICKS_TOKEN != '' }}
             - suite: suite-delta-lake-databricks104
-              config: hdp3
-            - suite: suite-delta-lake-databricks104
               ignore exclusion if: >-
                 ${{ env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || secrets.DATABRICKS_TOKEN != '' }}
-            - suite: suite-delta-lake-databricks113
-              config: hdp3
             - suite: suite-delta-lake-databricks113
               ignore exclusion if: >-
                 ${{ env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || secrets.DATABRICKS_TOKEN != '' }}
             - suite: suite-delta-lake-databricks122
-              config: hdp3
-            - suite: suite-delta-lake-databricks122
+              ignore exclusion if: >-
+                ${{ env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || secrets.DATABRICKS_TOKEN != '' }}
+            - suite: suite-delta-lake-databricks133
               ignore exclusion if: >-
                 ${{ env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || secrets.DATABRICKS_TOKEN != '' }}
 
@@ -966,60 +976,9 @@ jobs:
             #   value of the property, and the exclusion will apply normally.
             - "false"
           include:
-            # this suite is not meant to be run with different configs
-            - config: default
-              suite: suite-6-non-generic
-            # this suite is not meant to be run with different configs
-            - config: default
-              suite: suite-7-non-generic
-            # this suite is not meant to be run with different configs
-            - config: default
-              suite: suite-8-non-generic
-            # this suite is not meant to be run with different configs
-            - config: default
-              suite: suite-tpcds
-            # this suite is not meant to be run with different configs
-            - config: default
-              suite: suite-parquet
-            # this suite is not meant to be run with different configs
-            - config: default
-              suite: suite-oauth2
-            # this suite is not meant to be run with different configs
-            - config: default
-              suite: suite-ldap
-            # this suite is not meant to be run with different configs
-            - config: default
-              suite: suite-compatibility
             # this suite is designed specifically for apache-hive3. TODO remove the suite once we can run all regular tests on apache-hive3.
             - config: apache-hive3
               suite: suite-hms-only
-            # this suite is not meant to be run with different configs
-            - config: default
-              suite: suite-all-connectors-smoke
-            # this suite is not meant to be run with different configs
-            - config: default
-              suite: suite-delta-lake-oss
-            # this suite is not meant to be run with different configs
-            - config: default
-              suite: suite-kafka
-            # this suite is not meant to be run with different configs
-            - config: default
-              suite: suite-cassandra
-            # this suite is not meant to be run with different configs
-            - config: default
-              suite: suite-clickhouse
-            # this suite is not meant to be run with different configs
-            - config: default
-              suite: suite-mysql
-            # this suite is not meant to be run with different configs
-            - config: default
-              suite: suite-iceberg
-            # this suite is not meant to be run with different configs
-            - config: default
-              suite: suite-hudi
-            # this suite is not meant to be run with different configs
-            - config: default
-              suite: suite-ignite
           EOF
       - name: Build PT matrix (all)
         if: |
@@ -1045,11 +1004,11 @@ jobs:
           AWS_REGION:
           TRINO_AWS_ACCESS_KEY_ID:
           TRINO_AWS_SECRET_ACCESS_KEY:
-          DATABRICKS_73_JDBC_URL:
           DATABRICKS_91_JDBC_URL:
           DATABRICKS_104_JDBC_URL:
           DATABRICKS_113_JDBC_URL:
           DATABRICKS_122_JDBC_URL:
+          DATABRICKS_133_JDBC_URL:
           DATABRICKS_LOGIN:
           DATABRICKS_TOKEN:
           GCP_CREDENTIALS_KEY:
@@ -1075,7 +1034,7 @@ jobs:
     timeout-minutes: 130
     needs: build-pt
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # checkout all commits, as the build result depends on `git describe` equivalent
           ref: |
@@ -1112,11 +1071,11 @@ jobs:
           AWS_REGION: ${{ vars.TRINO_AWS_REGION }}
           TRINO_AWS_ACCESS_KEY_ID: ${{ secrets.TRINO_AWS_ACCESS_KEY_ID }}
           TRINO_AWS_SECRET_ACCESS_KEY: ${{ secrets.TRINO_AWS_SECRET_ACCESS_KEY }}
-          DATABRICKS_73_JDBC_URL: ${{ secrets.DATABRICKS_73_JDBC_URL }}
           DATABRICKS_91_JDBC_URL: ${{ secrets.DATABRICKS_91_JDBC_URL }}
           DATABRICKS_104_JDBC_URL: ${{ secrets.DATABRICKS_104_JDBC_URL }}
           DATABRICKS_113_JDBC_URL: ${{ secrets.DATABRICKS_113_JDBC_URL }}
           DATABRICKS_122_JDBC_URL: ${{ secrets.DATABRICKS_122_JDBC_URL }}
+          DATABRICKS_133_JDBC_URL: ${{ secrets.DATABRICKS_133_JDBC_URL }}
           DATABRICKS_LOGIN: token
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
           GCP_CREDENTIALS_KEY: ${{ secrets.GCP_CREDENTIALS_KEY }}

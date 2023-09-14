@@ -83,6 +83,7 @@ import io.trino.spi.security.ConnectorIdentity;
 import io.trino.spi.security.RoleGrant;
 import io.trino.spi.type.Type;
 import org.apache.thrift.TException;
+import org.apache.thrift.transport.TTransportException;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -162,6 +163,7 @@ public class ThriftHiveMetastore
     private final boolean translateHiveViews;
     private final boolean assumeCanonicalPartitionKeys;
     private final boolean useSparkTableStatisticsFallback;
+    private final boolean batchMetadataFetchEnabled;
     private final ThriftMetastoreStats stats;
     private final ExecutorService writeStatisticsExecutor;
 
@@ -179,6 +181,7 @@ public class ThriftHiveMetastore
             boolean translateHiveViews,
             boolean assumeCanonicalPartitionKeys,
             boolean useSparkTableStatisticsFallback,
+            boolean batchMetadataFetchEnabled,
             ThriftMetastoreStats stats,
             ExecutorService writeStatisticsExecutor)
     {
@@ -195,6 +198,7 @@ public class ThriftHiveMetastore
         this.translateHiveViews = translateHiveViews;
         this.assumeCanonicalPartitionKeys = assumeCanonicalPartitionKeys;
         this.useSparkTableStatisticsFallback = useSparkTableStatisticsFallback;
+        this.batchMetadataFetchEnabled = batchMetadataFetchEnabled;
         this.stats = requireNonNull(stats, "stats is null");
         this.writeStatisticsExecutor = requireNonNull(writeStatisticsExecutor, "writeStatisticsExecutor is null");
     }
@@ -399,8 +403,11 @@ public class ThriftHiveMetastore
             // When the table has partitions, but row count statistics are set to zero, we treat this case as empty
             // statistics to avoid underestimation in the CBO. This scenario may be caused when other engines are
             // used to ingest data into partitioned hive tables.
-            partitionBasicStatistics = partitionBasicStatistics.keySet().stream()
-                    .map(partitionName -> new SimpleEntry<>(partitionName, HiveBasicStatistics.createEmptyStatistics()))
+            // https://github.com/trinodb/trino/issues/18798 Hive Metastore assumes any new partition statistics to at least have all parameters that the partition used to have
+            partitionBasicStatistics = partitionBasicStatistics.entrySet().stream()
+                    .map(entry -> new SimpleEntry<>(
+                            entry.getKey(),
+                            entry.getValue().withEmptyRowCount()))
                     .collect(toImmutableMap(SimpleEntry::getKey, SimpleEntry::getValue));
         }
 
@@ -886,6 +893,10 @@ public class ThriftHiveMetastore
     @Override
     public Optional<List<SchemaTableName>> getAllTables()
     {
+        if (!batchMetadataFetchEnabled) {
+            return Optional.empty();
+        }
+
         try {
             return retry()
                     .stopOn(UnknownDBException.class)
@@ -895,6 +906,11 @@ public class ThriftHiveMetastore
                             return client.getAllTables();
                         }
                     }));
+        }
+        catch (TTransportException e) {
+            log.warn(e, "Failed to get all views");
+            // fallback in case of HMS error
+            return Optional.empty();
         }
         catch (TException e) {
             throw new TrinoException(HIVE_METASTORE_ERROR, e);
@@ -913,6 +929,10 @@ public class ThriftHiveMetastore
             return Optional.empty();
         }
 
+        if (!batchMetadataFetchEnabled) {
+            return Optional.empty();
+        }
+
         try {
             return retry()
                     .stopOn(UnknownDBException.class)
@@ -922,6 +942,11 @@ public class ThriftHiveMetastore
                             return client.getAllViews();
                         }
                     }));
+        }
+        catch (TTransportException e) {
+            log.warn(e, "Failed to get all tables");
+            // fallback in case of HMS error
+            return Optional.empty();
         }
         catch (TException e) {
             throw new TrinoException(HIVE_METASTORE_ERROR, e);
