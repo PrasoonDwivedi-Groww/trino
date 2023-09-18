@@ -19,6 +19,7 @@ import io.trino.Session;
 import io.trino.connector.MockConnectorFactory;
 import io.trino.connector.MockConnectorPlugin;
 import io.trino.execution.QueryState;
+import io.trino.plugin.blackhole.BlackHolePlugin;
 import io.trino.plugin.exchange.filesystem.FileSystemExchangePlugin;
 import io.trino.plugin.memory.MemoryQueryRunner;
 import io.trino.server.BasicQueryInfo;
@@ -64,6 +65,8 @@ public class TestDistributedFaultTolerantEngineOnlyQueries
                     .withSessionProperties(TEST_CATALOG_PROPERTIES)
                     .build()));
             queryRunner.createCatalog(TESTING_CATALOG, "mock");
+            queryRunner.installPlugin(new BlackHolePlugin());
+            queryRunner.createCatalog("blackhole", "blackhole");
         }
         catch (RuntimeException e) {
             throw closeAllSuppress(e, queryRunner);
@@ -108,7 +111,7 @@ public class TestDistributedFaultTolerantEngineOnlyQueries
         assertUpdate("DROP TABLE " + tableName);
     }
 
-    @Test(timeOut = 30_000)
+    @Test(timeOut = 60_000)
     public void testMetadataOnlyQueries()
             throws InterruptedException
     {
@@ -116,15 +119,23 @@ public class TestDistributedFaultTolerantEngineOnlyQueries
         Session highTaskMemorySession = Session.builder(getSession())
                 .setSystemProperty("fault_tolerant_execution_coordinator_task_memory", "500GB")
                 .setSystemProperty("fault_tolerant_execution_task_memory", "500GB")
+                // enforce each split in separate task
+                .setSystemProperty("fault_tolerant_execution_arbitrary_distribution_compute_task_target_size_min", "1B")
+                .setSystemProperty("fault_tolerant_execution_arbitrary_distribution_compute_task_target_size_max", "1B")
                 .build();
+
+        String slowTableName = "blackhole.default.testMetadataOnlyQueries_" + randomNameSuffix();
+        assertUpdate("CREATE TABLE " + slowTableName + " (a INT, b INT) WITH (split_count = 3, pages_per_split = 1, rows_per_page = 1, page_processing_delay = '60s')");
+
+        String slowQuery = "select count(*) FROM " + slowTableName;
+        String nonMetadataQuery = "select count(*) non_metadata_query_count_" + System.currentTimeMillis() + " from nation";
 
         ExecutorService backgroundExecutor = newCachedThreadPool();
         try {
-            String longQuery = "select count(*) long_query_count FROM lineitem l1 cross join lineitem l2 cross join lineitem l3 where l1.orderkey * l2.orderkey * l3.orderkey = 1";
             backgroundExecutor.submit(() -> {
-                query(highTaskMemorySession, longQuery);
+                query(highTaskMemorySession, slowQuery);
             });
-            assertEventually(() -> queryIsInState(longQuery, QueryState.RUNNING));
+            assertEventually(() -> queryIsInState(slowQuery, QueryState.RUNNING));
 
             assertThat(query("DESCRIBE lineitem")).succeeds();
             assertThat(query("SHOW TABLES")).succeeds();
@@ -141,7 +152,6 @@ public class TestDistributedFaultTolerantEngineOnlyQueries
             assertThat(query("SELECT * FROM system.jdbc.tables WHERE table_schem LIKE 'def%'")).succeeds();
 
             // check non-metadata queries still wait for resources
-            String nonMetadataQuery = "select count(*) non_metadata_query_count from nation";
             backgroundExecutor.submit(() -> {
                 query(nonMetadataQuery);
             });
@@ -149,10 +159,12 @@ public class TestDistributedFaultTolerantEngineOnlyQueries
             Thread.sleep(1000); // wait a bit longer and query should be still STARTING
             assertThat(queryState(nonMetadataQuery).orElseThrow()).isEqualTo(QueryState.STARTING);
 
-            // long query should be still running
-            assertThat(queryState(longQuery).orElseThrow()).isEqualTo(QueryState.RUNNING);
+            // slow query should be still running
+            assertThat(queryState(slowQuery).orElseThrow()).isEqualTo(QueryState.RUNNING);
         }
         finally {
+            cancelQuery(slowQuery);
+            cancelQuery(nonMetadataQuery);
             backgroundExecutor.shutdownNow();
         }
     }
@@ -168,5 +180,19 @@ public class TestDistributedFaultTolerantEngineOnlyQueries
     private boolean queryIsInState(String queryText, QueryState queryState)
     {
         return queryState(queryText).map(state -> state == queryState).orElse(false);
+    }
+
+    private void cancelQuery(String queryText)
+    {
+        getDistributedQueryRunner().getCoordinator().getQueryManager().getQueries().stream()
+                .filter(query -> query.getQuery().equals(queryText))
+                .forEach(query -> {
+                    try {
+                        getDistributedQueryRunner().getCoordinator().getQueryManager().cancelQuery(query.getQueryId());
+                    }
+                    catch (Exception e) {
+                        // ignore
+                    }
+                });
     }
 }
